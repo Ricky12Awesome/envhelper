@@ -1,0 +1,2 @@
+PATH += $HOME/.cargo/bin:$HOME/.local/bin
+A = B

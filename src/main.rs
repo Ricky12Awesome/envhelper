@@ -167,7 +167,7 @@ fn parse_op(force: bool, format_override: &str, format_append: &str, op: &str, n
 
             println!("{result}")
         }
-        ("=", _) => {
+        ("=", Err(VarError::NotPresent)) => {
             let result = parse_format(format_override, name, value, "");
 
             println!("{result}")
