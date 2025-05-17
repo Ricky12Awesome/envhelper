@@ -1,0 +1,11 @@
+[package]
+name = "envhelper"
+version = "0.1.0"
+edition = "2024"
+
+[profile.release]
+strip = true
+lto = true
+panic = "abort"
+
+[dependencies]
