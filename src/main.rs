@@ -3,6 +3,7 @@ use std::env::{VarError, args, var};
 use std::io::{IsTerminal, Read, stdin};
 use std::process::exit;
 
+const HELP: &str = include_str!("help");
 const OPS: &[&str] = &["+=!", "+=", "=!", "="];
 const OPTS: &[&str] = &[
     "--format-override",
@@ -17,7 +18,7 @@ fn main() {
     let args = args().collect::<Vec<String>>();
 
     if args.is_empty() {
-        show_help();
+        println!("{HELP}");
         exit(0)
     }
 
@@ -28,7 +29,7 @@ fn main() {
     for (i, arg) in args.iter().enumerate() {
         match arg.as_str() {
             "--help" => {
-                show_help();
+                println!("{HELP}");
                 exit(0);
             }
             arg if OPTS.contains(&arg) && i + 1 >= args.len() => {
@@ -79,12 +80,13 @@ fn main() {
     }
 
     let input = input();
-    let input = input.iter()
+    let input = input
+        .iter()
         .flat_map(|s| s.lines())
         .filter(|s| !s.starts_with("//"))
         .filter(|s| !s.starts_with("#"));
 
-    let mut args = args
+    let args = args
         .iter()
         .skip(1)
         .map(|s| s.as_str())
@@ -151,23 +153,6 @@ fn input() -> Option<String> {
         Ok(_) => Some(str),
         Err(_) => None,
     }
-}
-
-fn show_help() {
-    println!("Usage: envhelper [OPTION]... [--] [NAME [+=,?=,=] VALUE]...");
-    println!("Examples:");
-    println!("  Append PATH:");
-    println!("    envhelper -f bash PATH += $HOME/.cargo/bin:$HOME/.local/bin");
-    println!("  Set if not present:");
-    println!("    envhelper -f bash FOO ?= BAR");
-    println!("  Override:");
-    println!("    envhelper -f bash FOO = BAR");
-    println!("  Formatting:");
-    println!("    envhelper [-f, --format] [sh, bash, zsh, fish]");
-    println!("    envhelper [-fo --format-override] \"export {{N}}={{V}}\"");
-    println!("    envhelper [-fa --format-append] \"export {{N}}={{V}}:${{N}}\"");
-    println!("  Force (mainly for debugging):");
-    println!("    envhelper [-F, --force]");
 }
 
 fn parse_format(format: &str, name: &str, value: &str, current: &str) -> String {

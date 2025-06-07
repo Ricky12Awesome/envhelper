@@ -1,0 +1,22 @@
+Usage: envhelper [OPTION]... [--] [NAME [+=!,+=,=!,=] VALUE]...
+Options:
+  --help                    This Message
+  -f   --format             Default format for a specific shell (sh, bash, zsh, fish)
+  -fo  --format-override    Format for overrides
+  -fa  --format-append      Format for appending
+  -F   --force              Always shows even if present
+
+Examples:
+  Append PATH if not present:
+    envhelper -f bash PATH += $HOME/.cargo/bin:$HOME/.local/bin
+  Append PATH even if present:
+    envhelper -f bash PATH +=! $HOME/.cargo/bin:$HOME/.local/bin
+  Set if not present:
+    envhelper -f bash FOO = BAR
+  Set even if present:
+    envhelper -f bash FOO =! BAR
+  Formatting (these do the same):
+    envhelper -f bash
+    envhelper -fo "export {N}={V}" -fa "export {N}={V}:${N}"
+  Usage:
+    envsubst < <file> | envhelper -f bash | .
