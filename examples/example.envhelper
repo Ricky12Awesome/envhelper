@@ -1,2 +1,19 @@
+// When using `:` it will split into a list
+// $HOME/.cargo/bin
+// $HOME/.local/bin
 PATH += $HOME/.cargo/bin:$HOME/.local/bin
-A = B
+// if A is present already, this won't be set
+A = Will_Be_Replaced
+// Ignored, but shows if --force (-F)
+A = Will_Be_Replaced
+// Replaces Will_Be_Replaced
+A =! A
+A += B
+A += C
+A += D
+// Ignored, but shows if --force (-F)
+A += D
+// Ignored, but shows if --force (-F)
+A += D
+// Will always append
+A +=! D

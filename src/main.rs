@@ -1,7 +1,9 @@
+use std::collections::HashSet;
 use std::env::{VarError, args, var};
+use std::io::{IsTerminal, Read, stdin};
 use std::process::exit;
 
-const OPS: &[&str] = &["+=", "?=", "="];
+const OPS: &[&str] = &["+=!", "+=", "=!", "="];
 const OPTS: &[&str] = &[
     "--format-override",
     "-fo",
@@ -14,6 +16,11 @@ const OPTS: &[&str] = &[
 fn main() {
     let args = args().collect::<Vec<String>>();
 
+    if args.is_empty() {
+        show_help();
+        exit(0)
+    }
+
     let mut format_override = "";
     let mut format_append = "";
     let mut force = false;
@@ -21,21 +28,8 @@ fn main() {
     for (i, arg) in args.iter().enumerate() {
         match arg.as_str() {
             "--help" => {
-                println!("Usage: envhelper [OPTION]... [--] [NAME [+=,?=,=] VALUE]...");
-                println!("Examples:");
-                println!("  Append PATH:");
-                println!("    envhelper -f bash PATH += $HOME/.cargo/bin:$HOME/.local/bin");
-                println!("  Set if not present:");
-                println!("    envhelper -f bash FOO ?= BAR");
-                println!("  Override:");
-                println!("    envhelper -f bash FOO = BAR");
-                println!("  Formatting:");
-                println!("    envhelper [-f, --format] [sh, bash, zsh, fish]");
-                println!("    envhelper [-fo --format-override] \"export {{N}}={{V}}\"");
-                println!("    envhelper [-fa --format-append] \"export {{N}}={{V}}:${{N}}\"");
-                println!("  Force (mainly for debugging):");
-                println!("    envhelper [-F, --force]");
-                exit(0)
+                show_help();
+                exit(0);
             }
             arg if OPTS.contains(&arg) && i + 1 >= args.len() => {
                 let arg = args.get(i - 1);
@@ -84,9 +78,17 @@ fn main() {
         exit(1);
     }
 
-    let args = args
+    let input = input();
+    let input = input.iter()
+        .flat_map(|s| s.lines())
+        .filter(|s| !s.starts_with("//"))
+        .filter(|s| !s.starts_with("#"));
+
+    let mut args = args
         .iter()
         .skip(1)
+        .map(|s| s.as_str())
+        .chain(input)
         .flat_map(|s| s.split_whitespace())
         .flat_map(|s| {
             OPS.iter()
@@ -96,8 +98,10 @@ fn main() {
         .filter(|s| !s.is_empty())
         .collect::<Vec<&str>>();
 
-    for (i, &arg) in args.iter().enumerate() {
-        if OPS.contains(&arg) && (i == 0 || i + 1 >= args.len()) {
+    let mut dedup = HashSet::new();
+
+    for (i, &op) in args.iter().enumerate() {
+        if OPS.contains(&op) && (i == 0 || i + 1 >= args.len()) {
             let arg = args.get(i - 1);
 
             match arg {
@@ -112,13 +116,58 @@ fn main() {
             exit(1)
         }
 
-        if OPS.contains(&arg) {
+        if OPS.contains(&op) {
             let name = args[i - 1];
             let value = args[i + 1];
 
-            parse_op(force, format_override, format_append, arg, name, value);
+            if !force && dedup.contains(&(name, op, value)) {
+                continue;
+            }
+
+            if op == "+=" || op == "=" {
+                dedup.insert((name, op, value));
+            }
+
+            let value = parse_op(force, format_override, format_append, op, name, value);
+
+            for set in value.iter().flatten() {
+                println!("{set}")
+            }
         }
     }
+}
+
+fn input() -> Option<String> {
+    let mut str = String::new();
+    let mut stdin = stdin();
+
+    if stdin.is_terminal() {
+        return None;
+    }
+
+    let res = stdin.read_to_string(&mut str);
+
+    match res {
+        Ok(_) => Some(str),
+        Err(_) => None,
+    }
+}
+
+fn show_help() {
+    println!("Usage: envhelper [OPTION]... [--] [NAME [+=,?=,=] VALUE]...");
+    println!("Examples:");
+    println!("  Append PATH:");
+    println!("    envhelper -f bash PATH += $HOME/.cargo/bin:$HOME/.local/bin");
+    println!("  Set if not present:");
+    println!("    envhelper -f bash FOO ?= BAR");
+    println!("  Override:");
+    println!("    envhelper -f bash FOO = BAR");
+    println!("  Formatting:");
+    println!("    envhelper [-f, --format] [sh, bash, zsh, fish]");
+    println!("    envhelper [-fo --format-override] \"export {{N}}={{V}}\"");
+    println!("    envhelper [-fa --format-append] \"export {{N}}={{V}}:${{N}}\"");
+    println!("  Force (mainly for debugging):");
+    println!("    envhelper [-F, --force]");
 }
 
 fn parse_format(format: &str, name: &str, value: &str, current: &str) -> String {
@@ -128,50 +177,80 @@ fn parse_format(format: &str, name: &str, value: &str, current: &str) -> String 
         .replace("{C}", current)
 }
 
-fn parse_append(force: bool, format: &str, name: &str, value: &str, current: &str) {
+fn parse_append(
+    force: bool,
+    format: &str,
+    name: &str,
+    value: &str,
+    current: &str,
+) -> Option<String> {
     if !force && current.split(':').any(|s| s == value) {
-        return;
+        return None;
     }
 
     let result = parse_format(format, name, value, current);
 
-    println!("{result}")
+    Some(result)
 }
 
-fn parse_op(force: bool, format_override: &str, format_append: &str, op: &str, name: &str, value: &str) {
+fn parse_op(
+    force: bool,
+    format_override: &str,
+    format_append: &str,
+    op: &str,
+    name: &str,
+    value: &str,
+) -> Option<Vec<String>> {
     match (op, var(name)) {
+        ("+=!", Ok(current)) => {
+            let values = value.split(":");
+
+            let result = values
+                .flat_map(|s| parse_append(true, format_append, name, s, &current))
+                .collect();
+
+            Some(result)
+        }
+        ("+=!", Err(VarError::NotPresent)) => {
+            let result = parse_format(format_override, name, value, "");
+
+            Some(vec![result])
+        }
         ("+=", Ok(current)) => {
             let values = value.split(":");
 
-            for value in values {
-                parse_append(force, format_append, name, value, &current);
-            }
+            let result = values
+                .flat_map(|s| parse_append(force, format_append, name, s, &current))
+                .collect();
+
+            Some(result)
         }
         ("+=", Err(VarError::NotPresent)) => {
             let result = parse_format(format_override, name, value, "");
 
-            println!("{result}")
+            Some(vec![result])
         }
-        ("?=", _) if force => {
-            let result = parse_format(format_override, name, value, "");
-
-            println!("{result}")
-        }
-        ("?=", Err(VarError::NotPresent)) => {
-            let result = parse_format(format_override, name, value, "");
-
-            println!("{result}")
-        }
-        ("=", Ok(current)) => {
+        ("=!", Ok(current)) => {
             let result = parse_format(format_override, name, value, &current);
 
-            println!("{result}")
+            Some(vec![result])
+        }
+        ("=!", Err(VarError::NotPresent)) => {
+            let result = parse_format(format_override, name, value, "");
+
+            Some(vec![result])
+        }
+        ("=", _) if force => {
+            let result = parse_format(format_override, name, value, "");
+
+            Some(vec![result])
         }
         ("=", Err(VarError::NotPresent)) => {
             let result = parse_format(format_override, name, value, "");
 
-            println!("{result}")
+            Some(vec![result])
         }
+        ("=", Ok(_)) => None,
         (op, _) => {
             unreachable!("Unknown op: {op}")
         }
